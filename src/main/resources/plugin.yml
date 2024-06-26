@@ -1,0 +1,9 @@
+name: Koth
+main: fr.opoc.koth.KothPlugin
+version: 1.0
+folia-supported: true
+api-version: 1.13
+commands:
+  koth:
+    description: Main command for KOTH plugin
+    usage: /koth <start|axe|create|list>
