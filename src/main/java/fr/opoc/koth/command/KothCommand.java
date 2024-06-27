@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Calendar;
 import java.util.Map;
 
 public class KothCommand implements CommandExecutor {
@@ -76,6 +77,40 @@ public class KothCommand implements CommandExecutor {
               }
             } else {
               player.sendMessage("Please specify the name of the KOTH area to stop.");
+            }
+            return true;
+
+          case "schedule":
+            if (args.length == 4) {
+              String name = args[1];
+              String day = args[2];
+              String time = args[3];
+              if (kothAreas.containsKey(name)) {
+                int dayOfWeek;
+                switch (day.toLowerCase()) {
+                  case "sunday": dayOfWeek = Calendar.SUNDAY; break;
+                  case "monday": dayOfWeek = Calendar.MONDAY; break;
+                  case "tuesday": dayOfWeek = Calendar.TUESDAY; break;
+                  case "wednesday": dayOfWeek = Calendar.WEDNESDAY; break;
+                  case "thursday": dayOfWeek = Calendar.THURSDAY; break;
+                  case "friday": dayOfWeek = Calendar.FRIDAY; break;
+                  case "saturday": dayOfWeek = Calendar.SATURDAY; break;
+                  default:
+                    player.sendMessage("Invalid day of the week.");
+                    return true;
+                }
+
+                String[] timeParts = time.split(":");
+                int hour = Integer.parseInt(timeParts[0]);
+                int minute = Integer.parseInt(timeParts[1]);
+
+                kothManager.scheduleGame(kothAreas.get(name), dayOfWeek, hour, minute);
+                player.sendMessage("KOTH game for area '" + name + "' scheduled to start every " + day + " at " + time);
+              } else {
+                player.sendMessage("No KOTH area found with that name.");
+              }
+            } else {
+              player.sendMessage("Usage: /koth schedule <name> <day> <HH:MM>");
             }
             return true;
           default:

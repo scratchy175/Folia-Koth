@@ -22,7 +22,6 @@
             <version>1.20.1-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
-        <!-- Dépendance vers PluginA -->
         <dependency>
             <groupId>fr.naruse.dbapi</groupId>
             <artifactId>DBAPI</artifactId>

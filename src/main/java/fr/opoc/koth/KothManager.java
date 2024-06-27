@@ -5,14 +5,10 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Server;
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.Bukkit;
 
-import java.util.HashMap;
-import java.util.Map;
+
+import java.util.*;
 import java.util.function.Consumer;
 
 
@@ -120,5 +116,35 @@ public class KothManager {
     return location.getX() >= minX && location.getX() <= maxX &&
             location.getY() >= minY && location.getY() <= maxY &&
             location.getZ() >= minZ && location.getZ() <= maxZ;
+  }
+  public void scheduleGame(KothArea area, int dayOfWeek, int hour, int minute) {
+    Timer timer = new Timer();
+    TimerTask task = new TimerTask() {
+      @Override
+      public void run() {
+        Bukkit.getScheduler().runTask(plugin, () -> startGame(area));
+      }
+    };
+
+    Calendar startTime = Calendar.getInstance();
+    startTime.set(Calendar.DAY_OF_WEEK, dayOfWeek);
+    startTime.set(Calendar.HOUR_OF_DAY, hour);
+    startTime.set(Calendar.MINUTE, minute);
+    startTime.set(Calendar.SECOND, 0);
+
+    // If the scheduled time is before the current time, add one week to the start time
+    if (startTime.getTime().before(new Date())) {
+      startTime.add(Calendar.WEEK_OF_YEAR, 1);
+    }
+
+    timer.scheduleAtFixedRate(task, startTime.getTime(), 7 * 24 * 60 * 60 * 1000); // Repeat weekly
+    area.setScheduledTimer(timer);
+    plugin.getLogger().info("Scheduled KOTH game for area '" + area.getName() + "' to start every " + startTime.getTime());
+  }
+
+  private KothArea getKothArea(String name) {
+    // This method should return the KothArea by name
+    // Implement this method according to your KothArea storage logic
+    return null;
   }
 }
