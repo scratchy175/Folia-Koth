@@ -6,7 +6,7 @@
 
     <groupId>fr.opoc.koth</groupId>
     <artifactId>Folia-Koth</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <repositories>
         <repository>
@@ -23,13 +23,13 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>fr.naruse.dbapi</groupId>
-            <artifactId>DBAPI</artifactId>
-            <version>1.2.6</version>
-        </dependency>
-        <dependency>
             <groupId>fr.naruse.factions</groupId>
             <artifactId>Factions</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>fr.naruse.gamescore</groupId>
+            <artifactId>GamesCore</artifactId>
             <version>1.0.0</version>
         </dependency>
     </dependencies>
