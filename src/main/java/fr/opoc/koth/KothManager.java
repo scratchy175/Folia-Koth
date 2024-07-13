@@ -1,12 +1,13 @@
 package fr.opoc.koth;
 
 import fr.naruse.factions.faction.Faction;
-import fr.naruse.factions.faction.politic.FactionPolitic;
-import fr.naruse.factions.faction.politic.FactionRelation;
+import fr.naruse.gamescore.math.FireworkUtils;
 import fr.naruse.gamescore.utils.GamePlanning;
+import fr.naruse.gamescore.utils.IYCScoreboard;
 import io.papermc.paper.threadedregions.scheduler.RegionScheduler;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -24,11 +25,22 @@ public class KothManager {
   private Location pos1;
   private Location pos2;
   private Faction currentFaction; // Assuming you have a Faction class that manages factions
-  int victoryTimer = 60; // 5 minutes to hold the area for victory
-  int maxGameTimer = 1800; // 30 minutes total game time
-  int controlChangeDelay = 10 ; // 5 seconds delay before control changes
+  int victoryTimer; // 5 minutes to hold the area for victory
+  int maxGameTimer; // 30 minutes total game time
+  int controlChangeDelay; // 5 seconds delay before control changes
   private final Map<String, ScheduledTask> runningTasks = new HashMap<>();
   private final Map<String, KothArea> kothAreas;
+  private IYCScoreboard kothScoreboard;
+
+  int DEFAULT_CONTROL_CHANGE_DELAY = 0; // 5 seconds
+
+  private Player currentControlPlayer; // Track the player who last controlled the area
+  private boolean captureByFaction = false; // Default is capture by faction, set to false for capture by individual players
+
+
+  private boolean timerLineVisible = false; // Track visibility of the timer line
+
+
 
 
   public KothManager(KothPlugin plugin) {
@@ -64,6 +76,12 @@ public class KothManager {
 
 
   public void startGame(KothArea area) {
+    victoryTimer = 60; // 60 seconds to hold the area for victory
+    maxGameTimer = 1800; // 30 minutes total game time
+    controlChangeDelay = DEFAULT_CONTROL_CHANGE_DELAY; // 10 seconds to capture control
+    currentFaction = null;
+    kothScoreboard = new IYCScoreboard();
+
     if (area == null) {
       plugin.getLogger().warning("KOTH area is null. Cannot start game.");
       return;
@@ -71,16 +89,24 @@ public class KothManager {
 
     RegionScheduler scheduler = Bukkit.getRegionScheduler();
     Location center = getCenter(area);
+    kothScoreboard.getOptions().enableZone(center, 20);
+    kothScoreboard.insertLine(0, new IYCScoreboard.Line("§6§lKOTH",IYCScoreboard.Position.CENTER));
+    kothScoreboard.insertLine(1, new IYCScoreboard.Line("§eNom: §b" + area.getName(),IYCScoreboard.Position.LEFT));
+    kothScoreboard.insertLine(2, new IYCScoreboard.Line("§eCoordonnées: §b" + center.getX() + ", " + center.getY() + ", " + center.getZ(),IYCScoreboard.Position.LEFT));
+    kothScoreboard.insertLine(3, new IYCScoreboard.Line("§eAucune faction présente",IYCScoreboard.Position.LEFT));
     Bukkit.broadcast(Component.text("§eLe KOTH §b§l" + area.getName() + "§r§a a commencé aux coordonnées: " + center.getX() + ", " + center.getY() + ", " + center.getZ()));
     ScheduledTask task = scheduler.runAtFixedRate(this.plugin, Bukkit.getWorlds().get(0).getSpawnLocation().add(0, 40, 0), task1 -> {
-      if ( victoryTimer <= 0) {
+      if (victoryTimer <= 0) {
         task1.cancel();
-        Bukkit.broadcast(Component.text("§aLa faction §5§l" + (currentFaction != null ? currentFaction.getName() : "inconnue") + "§r§a a gagné!"));
+        Bukkit.broadcast(Component.text("§aLa faction §5§l" + currentFaction.getName() + "§r§a a gagné!"));
+        kothScoreboard.destroy();
+        FireworkUtils.build(this.plugin, center, 10);
         return;
       }
       if (maxGameTimer <= 0) {
         task1.cancel();
         Bukkit.broadcast(Component.text("§cLe jeu est terminé, aucune faction n'a gagné."));
+        kothScoreboard.destroy();
         return;
       }
       updateAreaControl(area);
@@ -90,10 +116,47 @@ public class KothManager {
     runningTasks.put(area.getName(), task);
   }
 
+
   private void updateAreaControl(KothArea area) {
     List<Player> playersInArea = getPlayersInArea(area);
-      Map<Faction, Integer> factionCounts = new HashMap<>();
+    Map<Object, Integer> controlCounts = new HashMap<>();
 
+    if (captureByFaction) {
+      for (Player player : playersInArea) {
+        Faction faction = Faction.getPlayerFaction(player);
+        if (faction != null) {
+          controlCounts.put(faction, controlCounts.getOrDefault(faction, 0) + 1);
+        }
+      }
+    } else {
+      // Treat players as individuals but consider factions for conflict resolution
+      for (Player player : playersInArea) {
+        controlCounts.put(player, controlCounts.getOrDefault(player, 0) + 1);
+      }
+    }
+
+    updateControlBasedOnCounts(controlCounts, playersInArea);
+  }
+
+  private void updateControlBasedOnCounts(Map<Object, Integer> controlCounts, List<Player> playersInArea) {
+    if (captureByFaction) {
+      if (controlCounts.size() > 1) {
+        controlChangeDelay = DEFAULT_CONTROL_CHANGE_DELAY;
+        kothScoreboard.updateLine(3, new IYCScoreboard.Line("§c§lContesté", IYCScoreboard.Position.LEFT));
+        resetTimerLine();
+      } else if (controlCounts.size() == 1) {
+        Object controlUnit = controlCounts.keySet().iterator().next();
+        updateControlUnit(controlUnit);
+      } else {
+        currentFaction = null;
+        currentControlPlayer = null;
+        controlChangeDelay = DEFAULT_CONTROL_CHANGE_DELAY;
+        kothScoreboard.updateLine(3, new IYCScoreboard.Line("§eAucune faction présente", IYCScoreboard.Position.LEFT));
+        resetTimerLine();
+      }
+    } else {
+      // Treat players as individuals but handle same faction players
+      Map<Faction, Integer> factionCounts = new HashMap<>();
       for (Player player : playersInArea) {
         Faction faction = Faction.getPlayerFaction(player);
         if (faction != null) {
@@ -101,30 +164,94 @@ public class KothManager {
         }
       }
 
-      if (!factionCounts.isEmpty()){
-        if (factionCounts.size() > 1 ) {
-          sendActionBarToPlayersNearby(getCenter(area), 50, "§eTemps: " + victoryTimer + " sec. || §4§lContesté ");
-          return;
-        } else {
-          Faction factionInControl = factionCounts.keySet().iterator().next();
-          if (currentFaction == null || !currentFaction.equals(factionInControl)) {
-            //inverser les deux conditions peut etre
-            if (controlChangeDelay > 0) {
-              sendActionBarToPlayersNearby(getCenter(area), 50, "§eTemps: " + controlChangeDelay + " sec. || Capture par: §5§l" + factionInControl.getName());
-              controlChangeDelay--;
-            } else {
-              currentFaction = factionInControl;
-              Bukkit.broadcast(Component.text("§eLa faction §5§l" + currentFaction.getName() + "§r§e Commence à contrôler la zone!"));
-              controlChangeDelay = 10;
-              victoryTimer = 60;
-            }
-            return;
-          }
+      if (controlCounts.size() > 1 && factionCounts.size() > 1) {
+        controlChangeDelay = DEFAULT_CONTROL_CHANGE_DELAY;
+        kothScoreboard.updateLine(3, new IYCScoreboard.Line("§c§lContesté", IYCScoreboard.Position.LEFT));
+        resetTimerLine();
+      } else if (!controlCounts.isEmpty()) {
+        Object controlUnit = controlCounts.keySet().iterator().next();
+        if (currentControlPlayer !=null && !currentControlPlayer.equals(controlUnit)) {
+          currentFaction = null;
+          currentControlPlayer = null;
+          controlChangeDelay = DEFAULT_CONTROL_CHANGE_DELAY;
+          resetTimerLine();
         }
+        updateControlUnit(controlUnit);
+      } else {
+        currentFaction = null;
+        currentControlPlayer = null;
+        controlChangeDelay = DEFAULT_CONTROL_CHANGE_DELAY;
+        kothScoreboard.updateLine(3, new IYCScoreboard.Line("§eAucune faction présente", IYCScoreboard.Position.LEFT));
+        resetTimerLine();
       }
-      sendActionBarToPlayersNearby(getCenter(area), 50, "§eTemps: " + victoryTimer + " sec. || Contrôlé par: §5§l" + (currentFaction != null ? currentFaction.getName() : "inconnue"));
-      victoryTimer--;
+    }
   }
+
+  private void updateControlUnit(Object controlUnit) {
+    Faction faction = null;
+    Player player = null;
+    String factionName = "Aucune faction";
+
+    if (controlUnit instanceof Faction) {
+      faction = (Faction) controlUnit;
+      player = findPlayerFromFaction(faction);
+    } else if (controlUnit instanceof Player) {
+      player = (Player) controlUnit;
+      faction = Faction.getPlayerFaction(player);
+      factionName = faction != null ? faction.getName() : "Aucune faction";
+
+    }
+    if (currentFaction == null || !currentFaction.equals(faction) || currentControlPlayer == null || !currentControlPlayer.equals(player)) {
+      if (controlChangeDelay > 0) {
+        kothScoreboard.updateLine(3, new IYCScoreboard.Line("§eCapture par: §5§l" + factionName + " (" + player.getName() + ") en " + controlChangeDelay + " sec.", IYCScoreboard.Position.LEFT));
+        controlChangeDelay--;
+      } else {
+        currentFaction = faction;
+        currentControlPlayer = player;
+        victoryTimer = 60;
+        updateScoreboard();
+
+      }
+    } else {
+      updateScoreboard();
+
+      victoryTimer--;
+    }
+  }
+
+  private void updateScoreboard() {
+    kothScoreboard.updateLine(3, new IYCScoreboard.Line("§eContrôlé par:", IYCScoreboard.Position.LEFT));
+    kothScoreboard.updateLine(4, new IYCScoreboard.Line("§eJoueur: §b" + currentControlPlayer.getName(), IYCScoreboard.Position.LEFT));
+    kothScoreboard.updateLine(5, new IYCScoreboard.Line("§eFaction: §b" + currentFaction.getName(), IYCScoreboard.Position.LEFT));
+    kothScoreboard.updateLine(6, new IYCScoreboard.Line("§eTemps: §b" + victoryTimer + " sec.", IYCScoreboard.Position.LEFT));
+  }
+
+
+//  private void resetTimerLine() {
+//    if (timerLineVisible) {
+//      kothScoreboard.removeLine(4);
+//      timerLineVisible = false;
+//    }
+//  }
+private void resetTimerLine() {
+    kothScoreboard.removeLine(4);
+
+}
+
+
+
+
+  private Player findPlayerFromFaction(Faction faction) {
+    for (Player player : Bukkit.getOnlinePlayers()) {
+      if (Faction.getPlayerFaction(player).equals(faction)) {
+        return player;
+      }
+    }
+    return null;
+  }
+
+
+
 
 
   private List<Player> getPlayersInArea(KothArea area) {
@@ -155,6 +282,7 @@ public class KothManager {
     if (task != null) {
       task.cancel();
       Bukkit.broadcast(Component.text("KOTH game for area '" + areaName + "' stopped."));
+      //resetGame();
     }
   }
 
@@ -231,13 +359,5 @@ public class KothManager {
     double centerY = (area.getPos1().getY() + area.getPos2().getY()) / 2;
     double centerZ = (area.getPos1().getZ() + area.getPos2().getZ()) / 2;
     return new Location(area.getPos1().getWorld(), centerX, centerY, centerZ);
-  }
-
-  public void sendActionBarToPlayersNearby(Location center, double radius, String message) {
-    for (Player player : Bukkit.getServer().getOnlinePlayers()) {
-      if (center.getWorld().equals(player.getWorld()) && center.distance(player.getLocation()) <= radius) {
-        player.sendActionBar(Component.text(message));
-      }
-    }
   }
 }
